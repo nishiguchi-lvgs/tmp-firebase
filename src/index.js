@@ -88,6 +88,10 @@ ref_peers.on('child_removed', (snap) => {
   console.log("ref_peers.on('child_removed')", {key: snap.key, val: snap.val()});
 });
 
+const audio = document.getElementById("local-audio");
+
+// FIXME 複数のStreamを混ぜる方法
+const audioContext = new AudioContext();
 
 // TODO 通話を選んで、 monitoring_peersを追加する処理 calls側のpushで作られるキーをkeyをキーとして使う
 call_list.$on('select', (key) => {
@@ -119,6 +123,15 @@ call_list.$on('select', (key) => {
     }
   };
 
+  // FIXME 複数のStreamを混ぜる方法 今のcreateMediaStreamDestinationを使う方法はうまく行かなかった
+  const destination = audioContext.createMediaStreamDestination();
+  peer.onaddstream = (event) => {
+    console.log('-- peer.onaddstream');
+    const stream = audioContext.createMediaStreamSource(event.stream);
+    stream.connect(destination);
+    audio.srcObject = destination.stream;
+  };
+
   navigator.mediaDevices.getUserMedia({video: false, audio: true})
     .then(stream => {
       stream.getTracks().forEach(track => {
@@ -132,7 +145,7 @@ call_list.$on('select', (key) => {
           return peer.setLocalDescription(session);
         })
         .then(() => {
-          console.log('setLocalDescription() and offer/sdp update success');
+          console.log('setLocalDescription() success');
         })
         .catch(err => {
           console.warn(err);
