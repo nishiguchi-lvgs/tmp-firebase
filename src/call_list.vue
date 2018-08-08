@@ -2,24 +2,24 @@
     <table>
         <thead>
             <tr>
+                <th>monitor</th>
                 <th>key</th>
                 <th>call_sid</th>
                 <th>identity</th>
                 <th>incoming</th>
                 <th>number</th>
                 <th>to</th>
-                <th>monitor</th>
             </tr>
         </thead>
         <tbody>
-            <tr v-for="item in list">
-                <td>{{ item.key }}</td>
+            <tr v-for="(item, key) in list">
+                <td><button @click="select(key)">select</button></td>
+                <td>{{ key }}</td>
                 <td>{{ item.call_sid }}</td>
                 <td>{{ item.identity }}</td>
                 <td>{{ item.incoming}} </td>
                 <td>{{ item.number }}</td>
                 <td>{{ item.to }}</td>
-                <td><button @click="select(item.key)">select</button></td>
             </tr>
         </tbody>
     </table>
@@ -28,24 +28,17 @@
   export default {
     data() {
       return {
-        list: [],
-        keys: [],
+        list: {},
       }
     },
     methods: {
       add(key, value) {
-        if (this.keys.includes(key)) {
-          return;
-        }
-
-        this.keys.push(key);
-        this.list.push(Object.assign({key}, value));
-        console.log('add', key, this.list, this.keys);
+        this.$set(this.list, key, value);
+        console.log('add', key, this.list);
       },
       remove(key) {
-        this.list = this.list.filter(item => item.key !== key);
-        this.keys = this.keys.filter(item_key => item_key !== key);
-        console.log('remove', key, this.list, this.keys);
+        this.$delete(this.list, key);
+        console.log('remove', key, this.list);
       },
       select(key) {
         this.$emit('select', key);

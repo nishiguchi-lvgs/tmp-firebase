@@ -9,12 +9,14 @@
             </tr>
         </thead>
         <tbody>
-            <tr v-for="item in list">
-                <td>{{ item.call_key }}</td>
-                <td>{{ item.key }}</td>
-                <td><div class="sdp">{{ item.offer ? item.offer.sdp : "" }}</div></td>
-                <td><div class="sdp">{{ item.answer ? item.answer.sdp : "" }}</div></td>
-            </tr>
+            <template v-for="(items, call_key) in list">
+                <tr v-for="(item, peer_key) in items">
+                    <td>{{ call_key }}</td>
+                    <td>{{ peer_key }}</td>
+                    <td><div class="sdp">{{ item.offer ? item.offer.sdp : "" }}</div></td>
+                    <td><div class="sdp">{{ item.answer ? item.answer.sdp : "" }}</div></td>
+                </tr>
+            </template>
         </tbody>
     </table>
 </template>
@@ -22,24 +24,17 @@
   export default {
     data() {
       return {
-        list: [],
-        keys: [],
+        list: {}
       }
     },
     methods: {
-      add(key, value) {
-        if (this.keys.includes(key)) {
-          return;
-        }
-
-        this.keys.push(key);
-        this.list.push(Object.assign({key}, value));
-        console.log('add', key, this.list, this.keys);
+      add(call_key, peers) {
+        this.$set(this.list, call_key, peers);
+        console.log('add', call_key, this.list);
       },
-      remove(key) {
-        this.list = this.list.filter(item => item.key !== key);
-        this.keys = this.keys.filter(item_key => item_key !== key);
-        console.log('remove', key, this.list, this.keys);
+      remove(call_key) {
+        this.$delete(this.list, call_key);
+        console.log('remove', call_key, this.list);
       },
     }
   }

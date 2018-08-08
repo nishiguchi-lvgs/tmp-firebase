@@ -4,6 +4,7 @@ import 'firebase/database';
 import Vue from 'vue';
 import vueCallList from './call_list.vue';
 import vuePeerList from './peer_list.vue';
+import './favicon.ico';
 
 const config = {
   apiKey: process.env["FIREBASE_API_KEY"],
@@ -22,9 +23,12 @@ const peer_list = new Vue(Object.assign(vuePeerList, {
   el: "#peer-list",
 }));
 
+const peers = {};
+
 const database = firebase.database();
 const ref_calls = database.ref('calls');
 
+// calls
 ref_calls.on('value', (snap) => {
   const list = snap.toJSON();
   if (list) {
@@ -32,44 +36,55 @@ ref_calls.on('value', (snap) => {
       call_list.add(key, list[key]);
     });
   }
-  console.log("value", list);
 });
 ref_calls.on('child_added', (snap) => {
-  call_list.add(snap.key, snap.val());
-  console.log('child_added', snap.key, snap.val(), snap)
+  const call_key = snap.key;
+  call_list.add(call_key, snap.val());
+  peers[call_key] = {};
+  console.log('child_added', {key: call_key, val:snap.val()})
 });
 ref_calls.on('child_changed', (snap) => {
-  console.log('child_changed', snap.key, snap.val(), snap)
+  console.log('child_changed', {key: snap.key, val:snap.val()})
 });
 ref_calls.on('child_removed', (snap) => {
-  call_list.remove(snap.key);
-  console.log('child_removed', snap.key, snap.val(), snap)
-});
+  const call_key = snap.key;
+  call_list.remove(call_key);
+  console.log('child_removed', {key: call_key, val:snap.val()});
 
-
-const ref_peers = database.ref('monitoring_peers');
-ref_peers.once('value', (snap) => {
-  const list = snap.toJSON();
-  if (list) {
-    Object.keys(list).forEach(call_key => {
-      const peer = list[call_key];
-      Object.keys(peer).forEach(key => {
-        const item = peer[key];
-        item["call_key"] = call_key;
-        peer_list.add(key, item);
-      });
+  // callが消えたら下位のpeerを全て解放する
+  if (peers[call_key]) {
+    Object.keys(peers[call_key]).forEach(peer_key => {
+      peers[call_key][peer_key].close();
+      peers[call_key][peer_key] = null;
     });
+    delete peers[call_key];
   }
-  console.log("value", list);
 });
+
+// peers
+const ref_peers = database.ref('monitoring_peers');
+ref_peers.once('value')
+  .then((snap) => {
+    const list = snap.toJSON();
+    if (list) {
+      Object.keys(list).forEach(call_key => {
+        peer_list.add(call_key, list[call_key]);
+      });
+    }
+  });
+
 ref_peers.on('child_added', (snap) => {
+  peer_list.add(snap.key, snap.val());
   console.log("ref_peers.on('child_added')", {key: snap.key, val: snap.val()});
 });
 ref_peers.on('child_changed', (snap) => {
-  // FIXME 変更後の値が来る call_keyの下に追加された場合や削除された場合、どちらでも呼ばれる
+  // 変更後の値が来る call_keyの下に追加された場合や削除された場合、どちらでも呼ばれる
+  // peer_listではcall_key以下は毎回置き換えてる状態になるので、一応両方に対応してる
+  peer_list.add(snap.key, snap.val());
   console.log("ref_peers.on('child_changed')", {key: snap.key, val: snap.val()});
 });
 ref_peers.on('child_removed', (snap) => {
+  peer_list.remove(snap.key);
   console.log("ref_peers.on('child_removed')", {key: snap.key, val: snap.val()});
 });
 
@@ -83,10 +98,25 @@ call_list.$on('select', (key) => {
   // answer待ち受け用
   const ref_answer = database.ref(`monitoring_peers/${key}/${ref_rtc.key}/answer`);
 
-  const config = {"iceServers":[{ "url": "stun:stun.l.google.com:19302" }]};
+  const config = {"iceServers": [{"url": "stun:stun.l.google.com:19302"}]};
   const peer = new RTCPeerConnection(config);
+  peers[key][ref_rtc.key] = peer;
+
   peer.onicecandidate = (event) => {
-    // TODO iceを受け渡すか、iceが揃ってからoffer/sdpをセットする
+    if (! event.candidate) {
+      // icecandidate付きでSDPを送信
+      ref_rtc.update({
+        "offer/sdp": peer.localDescription.sdp
+      })
+        .then(() => {
+          console.log("update offer/sdp", key);
+        })
+        .catch(err => {
+          console.warn("error update offer/sdp", err)
+        });
+    } else {
+      console.log("peer.onicecandidate", event);
+    }
   };
 
   navigator.mediaDevices.getUserMedia({video: false, audio: true})
@@ -99,13 +129,7 @@ call_list.$on('select', (key) => {
     .then(() => {
       peer.createOffer()
         .then(session => {
-          console.log('createOffer then', session);
-          return Promise.all([
-            ref_rtc.update({
-              "offer/sdp": session.sdp
-            }),
-            peer.setLocalDescription(session)
-          ]);
+          return peer.setLocalDescription(session);
         })
         .then(() => {
           console.log('setLocalDescription() and offer/sdp update success');
@@ -123,6 +147,21 @@ call_list.$on('select', (key) => {
 
   // answerがセットされたときの動作
   ref_answer.on('child_added', (snap) => {
-    console.log("ref_answer.on('child_added')", snap.val());
+    console.log("ref_answer.on('child_added')", {key: snap.key, val: snap.val()});
+    if (snap.key !== "sdp") {
+      return;
+
+    }
+    const session = new RTCSessionDescription({
+      sdp: snap.val(),
+      type: "answer",
+    });
+    peer.setRemoteDescription(session)
+      .then(() => {
+        console.log("peer.setRemoteDescription(session) success");
+      })
+      .catch(err => {
+        console.warn("peer.setRemoteDescription(session) failure", err)
+      });
   });
 });
