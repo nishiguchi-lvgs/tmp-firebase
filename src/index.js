@@ -59,6 +59,15 @@ ref_calls.on('child_removed', (snap) => {
     });
     delete peers[call_key];
   }
+
+  if (audio_elements[call_key]) {
+    audio_elements[call_key].forEach(audio => {
+      if (audio.parentNode) {
+        audio.parentNode.removeChild(audio);
+      }
+    });
+    delete audio_elements[call_key];
+  }
 });
 
 // peers
@@ -88,23 +97,19 @@ ref_peers.on('child_removed', (snap) => {
   console.log("ref_peers.on('child_removed')", {key: snap.key, val: snap.val()});
 });
 
-const audio = document.getElementById("local-audio");
-
-// FIXME 複数のStreamを混ぜる方法
-const audioContext = new AudioContext();
+const audio_elements = {};
 
 // TODO 通話を選んで、 monitoring_peersを追加する処理 calls側のpushで作られるキーをkeyをキーとして使う
-call_list.$on('select', (key) => {
-  console.log('call select', key);
-
+call_list.$on('select', (call_key) => {
+  console.log('call select', call_key);
   // root
-  const ref_rtc = database.ref(`monitoring_peers/${key}`).push();
+  const ref_rtc = database.ref(`monitoring_peers/${call_key}`).push();
   // answer待ち受け用
-  const ref_answer = database.ref(`monitoring_peers/${key}/${ref_rtc.key}/answer`);
+  const ref_answer = database.ref(`monitoring_peers/${call_key}/${ref_rtc.key}/answer`);
 
   const config = {"iceServers": [{"url": "stun:stun.l.google.com:19302"}]};
   const peer = new RTCPeerConnection(config);
-  peers[key][ref_rtc.key] = peer;
+  peers[call_key][ref_rtc.key] = peer;
 
   peer.onicecandidate = (event) => {
     if (! event.candidate) {
@@ -113,7 +118,7 @@ call_list.$on('select', (key) => {
         "offer/sdp": peer.localDescription.sdp
       })
         .then(() => {
-          console.log("update offer/sdp", key);
+          console.log("update offer/sdp", call_key);
         })
         .catch(err => {
           console.warn("error update offer/sdp", err)
@@ -123,13 +128,14 @@ call_list.$on('select', (key) => {
     }
   };
 
-  // FIXME 複数のStreamを混ぜる方法 今のcreateMediaStreamDestinationを使う方法はうまく行かなかった
-  const destination = audioContext.createMediaStreamDestination();
+  audio_elements[call_key] = [];
   peer.onaddstream = (event) => {
-    console.log('-- peer.onaddstream');
-    const stream = audioContext.createMediaStreamSource(event.stream);
-    stream.connect(destination);
-    audio.srcObject = destination.stream;
+    console.log('-- peer.onaddstream', event.stream);
+    // TODO streamを混ぜて一つのAudioにする方法がわからなかったので、Stream分audioタグを作ることにした…
+    const audio = document.createElement('audio');
+    audio.autoplay = true;
+    audio.srcObject = event.stream;
+    audio_elements[call_key].push(audio);
   };
 
   navigator.mediaDevices.getUserMedia({video: false, audio: true})
